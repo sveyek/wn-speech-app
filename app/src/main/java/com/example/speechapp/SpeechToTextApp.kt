@@ -1,10 +1,12 @@
 package com.example.speechapp
 
+import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,7 +38,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.Manifest
 
 @Composable
 fun SpeechToTextApp() {
@@ -56,10 +57,18 @@ fun SpeechToTextApp() {
         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
+//    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+//        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+//        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+//    }
+
     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK") // Sinhala language code for Sri Lanka
+        putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true) // Enable language detection
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, arrayOf("si-LK")) // Allow Sinhala language
     }
+
 
     speechRecognizer.setRecognitionListener(object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
@@ -78,6 +87,25 @@ fun SpeechToTextApp() {
         }
 
         override fun onError(error: Int) {
+
+            // Map error codes to human-readable messages
+            val errorMessage = when (error) {
+                SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                SpeechRecognizer.ERROR_CLIENT -> "Client-side error"
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
+                SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                SpeechRecognizer.ERROR_NO_MATCH -> "No match found"
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy"
+                SpeechRecognizer.ERROR_SERVER -> "Server error"
+                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
+                SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "Language Unavailable"
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "Language Not Supported"
+                else -> "Unknown error"
+            }
+            // Log the error code and message
+            Log.e("SpeechToTextApp", "Error occurred: Code = $error, Message = $errorMessage")
+
             Toast.makeText(context, "Error: $error", Toast.LENGTH_SHORT).show()
             isListening = false
         }
@@ -85,6 +113,7 @@ fun SpeechToTextApp() {
         override fun onResults(results: Bundle?) {
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             spokenText = matches?.joinToString(separator = " ") ?: ""
+            Log.d("SpeechToTextApp", "Recognized text: $spokenText")
         }
     })
 
