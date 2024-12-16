@@ -41,8 +41,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+
+val systemPrompt = "You are a helpful telecom assistant. When a customer asks a question, always respond in SINHALA language. Keep your responses short. You can imagine things that are within the organization such as package details to respond to the user. Do not add any unspeakable markdown symbols to response. "
+
+val chatMessages = mutableListOf(
+    mapOf("role" to "system", "content" to systemPrompt)
+)
 
 @Composable
 fun VoiceBotApp() {
@@ -100,6 +107,7 @@ fun VoiceBotApp() {
 
             val apiResponse = sendToAzureOpenAI(spokenText) { response ->
                 if (response != null) {
+                    Log.e("VoiceChatbot", response)
                     messages.add(Pair(response, false))
                     // Speak GPT response
                     tts.speak(response, TextToSpeech.QUEUE_FLUSH, null, null)
@@ -170,14 +178,16 @@ fun sendToAzureOpenAI(userInput: String, onResponse: (String?) -> Unit) {
     val apiKey = "b08d0124e8f644be843f152a1753b8e9"
     val endpoint = "https://openai-wn-rnd-vision.openai.azure.com/"
     val deploymentName = "gpt-4o-mini"
-    val apiVersion = "2024-05-01-preview"
+    val apiVersion = "2024-08-01-preview"
+
+    chatMessages.add(mapOf("role" to "user", "content" to userInput))
 
     // Create OkHttpClient instance
     val client = OkHttpClient()
 
     // Create request body
     val jsonBody = JSONObject()
-    jsonBody.put("prompt", userInput)
+    jsonBody.put("messages", JSONArray(chatMessages))
     jsonBody.put("max_tokens", 200) // Set token limit as needed
     jsonBody.put("temperature", 0.7) // Adjust as required
     jsonBody.put("top_p", 1.0)
@@ -186,7 +196,7 @@ fun sendToAzureOpenAI(userInput: String, onResponse: (String?) -> Unit) {
 
     // Build the request
     val request = Request.Builder()
-        .url("$endpoint/openai/deployments/$deploymentName/completions?api-version=$apiVersion")
+        .url("$endpoint/openai/deployments/$deploymentName/chat/completions?api-version=$apiVersion")
         .addHeader("Content-Type", "application/json")
         .addHeader("api-key", apiKey)
         .post(requestBody)
@@ -206,7 +216,15 @@ fun sendToAzureOpenAI(userInput: String, onResponse: (String?) -> Unit) {
                 } else {
                     val responseBody = response.body?.string()
                     val jsonResponse = JSONObject(responseBody ?: "")
-                    val generatedText = jsonResponse.optJSONArray("choices")?.optJSONObject(0)?.optString("text")
+                    val generatedText = jsonResponse.optJSONArray("choices")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("message")
+                        ?.optString("content")
+
+                    if (!generatedText.isNullOrEmpty()) {
+                        chatMessages.add(mapOf("role" to "assistant", "content" to generatedText))
+                    }
+
                     onResponse(generatedText)
                 }
             }
