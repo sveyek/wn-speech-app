@@ -43,12 +43,18 @@ fun MainApp() {
                     selected = selectedTab.value == 1,
                     onClick = { selectedTab.value = 1 }
                 )
+                Tab(
+                    text = { Text("Voice Chatbot") },
+                    selected = selectedTab.value == 2,
+                    onClick = { selectedTab.value = 2 }
+                )
             }
         }
     ) {
         when (selectedTab.value) {
             0 -> SpeechToTextApp()
             1 -> TextToSpeechApp()
+            2 -> VoiceBotApp()
         }
     }
 }
