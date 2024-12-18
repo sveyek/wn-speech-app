@@ -36,16 +36,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.UUID
 
-val systemPrompt = "You are a helpful telecom assistant. When a customer asks a question, always respond in SINHALA language. Keep your responses short. You can imagine things that are within the organization such as package details to respond to the user. Do not add any unspeakable markdown symbols to response. "
+val systemPrompt = "You are a helpful telecom assistant. Always respond in ENGLISH language. Keep your responses SHORT and CONCISE. You can imagine things that are within the organization such as package details to respond to the user. Do not add any unspeakable markdown symbols to response. Do not say anything about the language you are responding."
 
 val chatMessages = mutableListOf(
     mapOf("role" to "system", "content" to systemPrompt)
@@ -56,7 +60,6 @@ fun VoiceBotApp() {
     val context = LocalContext.current
     val tts = remember { TextToSpeech(context, null) }
     var spokenText by remember { mutableStateOf("") }
-    var gptResponse by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
     val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
     val messages = remember { mutableStateListOf<Pair<String, Boolean>>() } // Pair: (Message, IsUser)
@@ -75,7 +78,9 @@ fun VoiceBotApp() {
 
     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK") // Sinhala language code for Sri Lanka
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK")
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-HI") // English as fallback
+        putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
     }
 
     speechRecognizer.setRecognitionListener(object : RecognitionListener {
@@ -107,10 +112,12 @@ fun VoiceBotApp() {
 
             val apiResponse = sendToAzureOpenAI(spokenText) { response ->
                 if (response != null) {
-                    Log.e("VoiceChatbot", response)
-                    messages.add(Pair(response, false))
+                    // Translate GPT response from english to sinhala
+                    val sinhalaResponse = translateText(response)
+                    messages.add(Pair(sinhalaResponse, false))
+                    Log.d("sinhala", sinhalaResponse)
                     // Speak GPT response
-                    tts.speak(response, TextToSpeech.QUEUE_FLUSH, null, null)
+                    tts.speak(sinhalaResponse, TextToSpeech.QUEUE_FLUSH, null, null)
 
                 } else Log.e("VoiceChatbot", "Couldn't receive openai response")
             }
@@ -188,7 +195,7 @@ fun sendToAzureOpenAI(userInput: String, onResponse: (String?) -> Unit) {
     // Create request body
     val jsonBody = JSONObject()
     jsonBody.put("messages", JSONArray(chatMessages))
-    jsonBody.put("max_tokens", 200) // Set token limit as needed
+    jsonBody.put("max_tokens", 100) // Set token limit as needed
     jsonBody.put("temperature", 0.7) // Adjust as required
     jsonBody.put("top_p", 1.0)
 
@@ -223,6 +230,7 @@ fun sendToAzureOpenAI(userInput: String, onResponse: (String?) -> Unit) {
 
                     if (!generatedText.isNullOrEmpty()) {
                         chatMessages.add(mapOf("role" to "assistant", "content" to generatedText))
+                        Log.d("sinhala-E", generatedText)
                     }
 
                     onResponse(generatedText)
@@ -231,6 +239,74 @@ fun sendToAzureOpenAI(userInput: String, onResponse: (String?) -> Unit) {
         }
     })
 }
+
+fun translateText(text: String): String {
+    // Add your key and endpoint
+    val key = "EQTlUqfEBW7NTaGwlveHDnsbgRQ5VG6PeTnVFqcU4M7DpeMlnKvSJQQJ99ALAC8vTInXJ3w3AAAbACOG3etg"
+    val endpoint = "https://api.cognitive.microsofttranslator.com"
+    val location = "westus2"
+
+    val path = "/translate"
+    val constructedUrl = "$endpoint$path"
+
+    // Query parameters
+    val params = constructedUrl.toHttpUrlOrNull()?.newBuilder()
+        ?.addQueryParameter("api-version", "3.0")
+        ?.addQueryParameter("from", "en")
+        ?.addQueryParameter("to", "si")
+        ?.build()
+        ?: throw IllegalArgumentException("Invalid URL")
+
+    // Headers
+    val headers = Headers.Builder()
+        .add("Ocp-Apim-Subscription-Key", key)
+        .add("Ocp-Apim-Subscription-Region", location)
+        .add("Content-type", "application/json")
+        .add("X-ClientTraceId", UUID.randomUUID().toString())
+        .build()
+
+    // Request body
+    val body = JSONArray()
+    val textObject = JSONObject().put("text", text)
+    body.put(textObject)
+    val requestBody = RequestBody.create("application/json".toMediaTypeOrNull(), body.toString())
+
+    // HTTP client and request
+    val client = OkHttpClient()
+    val request = Request.Builder()
+        .url(params)
+        .headers(headers)
+        .post(requestBody)
+        .build()
+
+    // Execute request
+    client.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) {
+            throw IOException("Unexpected code $response")
+        }
+
+        val responseBody = response.body?.string() ?: throw IOException("Empty response body")
+
+        // Parse the response string into a JSONArray
+        val jsonArray = JSONArray(responseBody)
+
+        // Build a single string from the translated texts
+        val translatedTexts = StringBuilder()
+        for (i in 0 until jsonArray.length()) {
+            val translations = jsonArray.getJSONObject(i).getJSONArray("translations")
+            for (j in 0 until translations.length()) {
+                val text = translations.getJSONObject(j).getString("text")
+                if (translatedTexts.isNotEmpty()) {
+                    translatedTexts.append(" ") // Add space or other delimiter
+                }
+                translatedTexts.append(text) // Append the text
+            }
+        }
+
+        return translatedTexts.toString()
+    }
+}
+
 
 
 //fun sendToCompose(input: String, callback: (String) -> Unit) {
